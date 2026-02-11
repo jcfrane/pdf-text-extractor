@@ -1,0 +1,50 @@
+{
+    "name": "jcfrane/pdf-text-extractor",
+    "description": "A Laravel PDF text extraction package with multiple strategies (PdfParser, XObject, AWS Textract, Tesseract OCR). Handles Canva-generated PDFs, scanned documents, and other edge cases with automatic fallback.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["pdf", "text-extraction", "canva", "xobject", "ocr", "laravel"],
+    "authors": [
+        {
+            "name": "JC Frane",
+            "email": "jcfrane@gmail.com"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "smalot/pdfparser": "^2.0"
+    },
+    "require-dev": {
+        "aws/aws-sdk-php": "^3.369",
+        "orchestra/testbench": "^8.0|^9.0|^10.0",
+        "pestphp/pest": "^2.0|^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "JCFrane\\PdfTextExtractor\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "JCFrane\\PdfTextExtractor\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "JCFrane\\PdfTextExtractor\\PdfTextExtractorServiceProvider"
+            ],
+            "aliases": {
+                "PdfTextExtractor": "JCFrane\\PdfTextExtractor\\Facades\\PdfTextExtractor"
+            }
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    }
+}
