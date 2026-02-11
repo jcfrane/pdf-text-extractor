@@ -75,52 +75,104 @@ if ($result->isSuccessful()) {
 
 ## Configuration
 
-Default strategy order:
-1. `PdfParserStrategy`
-2. `XObjectStrategy`
-3. `TextractStrategy` (optional)
-4. `TesseractStrategy` (optional)
+Publish the config file:
 
-Key config values in `config/pdf-text-extractor.php`:
-- `min_text_length`
-- `strategies`
-- `textract.*`
-- `tesseract.*`
+```bash
+php artisan vendor:publish --tag=pdf-text-extractor-config
+```
 
-## AWS Textract in Laravel
+This creates `config/pdf-text-extractor.php` with the following options:
 
-Textract behavior:
-- single-page PDF: `DetectDocumentText` (sync)
-- multi-page PDF: `StartDocumentTextDetection` + `GetDocumentTextDetection` (async, via S3)
+### Minimum Text Length
 
-Set env values:
+```php
+'min_text_length' => env('PDF_EXTRACTOR_MIN_TEXT_LENGTH', 20),
+```
+
+The minimum number of characters an extraction must produce to be considered successful. If a strategy returns fewer characters than this threshold, the next strategy in the list will be tried. Increase this if short garbage output is being accepted; decrease it if your PDFs legitimately contain very little text.
+
+### Strategies
+
+```php
+'strategies' => [
+    JCFrane\PdfTextExtractor\Strategies\PdfParserStrategy::class,
+    JCFrane\PdfTextExtractor\Strategies\XObjectStrategy::class,
+    // JCFrane\PdfTextExtractor\Strategies\TextractStrategy::class,
+    // JCFrane\PdfTextExtractor\Strategies\TesseractStrategy::class,
+],
+```
+
+An ordered list of extraction strategies. Each strategy is attempted in sequence until one produces text meeting the `min_text_length` threshold. You can reorder, add, or remove strategies to suit your needs.
+
+| Strategy | Best for | Requirements |
+|---|---|---|
+| `PdfParserStrategy` | Standard text-based PDFs | None (included) |
+| `XObjectStrategy` | Canva / XObject-based PDFs | None (included) |
+| `TextractStrategy` | Scanned PDFs (cloud OCR) | `aws/aws-sdk-php`, AWS credentials |
+| `TesseractStrategy` | Scanned PDFs (local OCR) | `tesseract-ocr`, `ghostscript` binaries |
+
+**Example: enable all strategies**
+
+```php
+'strategies' => [
+    JCFrane\PdfTextExtractor\Strategies\PdfParserStrategy::class,
+    JCFrane\PdfTextExtractor\Strategies\XObjectStrategy::class,
+    JCFrane\PdfTextExtractor\Strategies\TextractStrategy::class,
+    JCFrane\PdfTextExtractor\Strategies\TesseractStrategy::class,
+],
+```
+
+### AWS Textract
+
+Only required if `TextractStrategy` is in your strategies list. Requires `composer require aws/aws-sdk-php`.
+
+```php
+'textract' => [
+    'region'  => env('PDF_EXTRACTOR_AWS_REGION', 'us-east-1'),
+    'key'     => env('PDF_EXTRACTOR_AWS_KEY'),
+    'secret'  => env('PDF_EXTRACTOR_AWS_SECRET'),
+    'version' => env('PDF_EXTRACTOR_AWS_VERSION', 'latest'),
+
+    // Required for multi-page PDFs (async API uploads the PDF to S3)
+    's3_bucket' => env('PDF_EXTRACTOR_AWS_S3_BUCKET'),
+    's3_prefix' => env('PDF_EXTRACTOR_AWS_S3_PREFIX', 'pdf-text-extractor'),
+
+    // Async job polling
+    'async_poll_interval_ms'  => (int) env('PDF_EXTRACTOR_AWS_ASYNC_POLL_INTERVAL_MS', 1000),
+    'async_max_attempts'      => (int) env('PDF_EXTRACTOR_AWS_ASYNC_MAX_ATTEMPTS', 20),
+    'async_delete_uploaded'   => (bool) env('PDF_EXTRACTOR_AWS_ASYNC_DELETE_UPLOADED', true),
+],
+```
+
+| Key | Env Variable | Default | Description |
+|---|---|---|---|
+| `region` | `PDF_EXTRACTOR_AWS_REGION` | `us-east-1` | AWS region for Textract and S3 |
+| `key` | `PDF_EXTRACTOR_AWS_KEY` | — | AWS access key ID |
+| `secret` | `PDF_EXTRACTOR_AWS_SECRET` | — | AWS secret access key |
+| `version` | `PDF_EXTRACTOR_AWS_VERSION` | `latest` | AWS SDK version |
+| `s3_bucket` | `PDF_EXTRACTOR_AWS_S3_BUCKET` | — | S3 bucket for multi-page PDF processing |
+| `s3_prefix` | `PDF_EXTRACTOR_AWS_S3_PREFIX` | `pdf-text-extractor` | Key prefix for uploaded PDFs in S3 |
+| `async_poll_interval_ms` | `PDF_EXTRACTOR_AWS_ASYNC_POLL_INTERVAL_MS` | `1000` | Milliseconds between polling attempts for async jobs |
+| `async_max_attempts` | `PDF_EXTRACTOR_AWS_ASYNC_MAX_ATTEMPTS` | `20` | Maximum number of polling attempts before giving up |
+| `async_delete_uploaded` | `PDF_EXTRACTOR_AWS_ASYNC_DELETE_UPLOADED` | `true` | Delete the uploaded PDF from S3 after processing |
+
+**How Textract works:**
+
+- **Single-page PDFs** use the synchronous `DetectDocumentText` API — no S3 required.
+- **Multi-page PDFs** use the async flow: the PDF is uploaded to S3, `StartDocumentTextDetection` is called, and the result is polled via `GetDocumentTextDetection`.
+
+Add these env values to your `.env`:
 
 ```env
 PDF_EXTRACTOR_AWS_REGION=eu-west-2
 PDF_EXTRACTOR_AWS_KEY=your_key
 PDF_EXTRACTOR_AWS_SECRET=your_secret
-PDF_EXTRACTOR_AWS_VERSION=latest
 
-# Required for multi-page Textract
+# Required for multi-page PDFs
 PDF_EXTRACTOR_AWS_S3_BUCKET=your_bucket
-PDF_EXTRACTOR_AWS_S3_PREFIX=pdf-text-extractor
-
-# Optional async tuning
-PDF_EXTRACTOR_AWS_ASYNC_POLL_INTERVAL_MS=1000
-PDF_EXTRACTOR_AWS_ASYNC_MAX_ATTEMPTS=60
-PDF_EXTRACTOR_AWS_ASYNC_DELETE_UPLOADED=true
 ```
 
-Required IAM actions:
-- `textract:DetectDocumentText`
-- `textract:StartDocumentTextDetection`
-- `textract:GetDocumentTextDetection`
-- `s3:PutObject`
-- `s3:GetObject`
-- `s3:DeleteObject`
-- `s3:ListBucket`
-
-Example policy (replace `YOUR_BUCKET_NAME` and prefix if needed):
+**Required IAM permissions:**
 
 ```json
 {
@@ -156,6 +208,52 @@ Example policy (replace `YOUR_BUCKET_NAME` and prefix if needed):
     }
   ]
 }
+```
+
+### Tesseract OCR
+
+Only required if `TesseractStrategy` is in your strategies list. Requires `tesseract` and `ghostscript` installed on the system.
+
+```php
+'tesseract' => [
+    'binary'              => env('PDF_EXTRACTOR_TESSERACT_BINARY', 'tesseract'),
+    'ghostscript_binary'  => env('PDF_EXTRACTOR_GHOSTSCRIPT_BINARY', 'gs'),
+    'language'            => env('PDF_EXTRACTOR_TESSERACT_LANGUAGE', 'eng'),
+    'dpi'                 => (int) env('PDF_EXTRACTOR_TESSERACT_DPI', 300),
+],
+```
+
+| Key | Env Variable | Default | Description |
+|---|---|---|---|
+| `binary` | `PDF_EXTRACTOR_TESSERACT_BINARY` | `tesseract` | Path to the Tesseract binary |
+| `ghostscript_binary` | `PDF_EXTRACTOR_GHOSTSCRIPT_BINARY` | `gs` | Path to the Ghostscript binary |
+| `language` | `PDF_EXTRACTOR_TESSERACT_LANGUAGE` | `eng` | Tesseract language code (e.g. `eng`, `fra`, `deu`) |
+| `dpi` | `PDF_EXTRACTOR_TESSERACT_DPI` | `300` | DPI used when converting PDF pages to images |
+
+### Environment Variables Reference
+
+All env variables at a glance:
+
+```env
+# General
+PDF_EXTRACTOR_MIN_TEXT_LENGTH=20
+
+# AWS Textract
+PDF_EXTRACTOR_AWS_REGION=us-east-1
+PDF_EXTRACTOR_AWS_KEY=
+PDF_EXTRACTOR_AWS_SECRET=
+PDF_EXTRACTOR_AWS_VERSION=latest
+PDF_EXTRACTOR_AWS_S3_BUCKET=
+PDF_EXTRACTOR_AWS_S3_PREFIX=pdf-text-extractor
+PDF_EXTRACTOR_AWS_ASYNC_POLL_INTERVAL_MS=1000
+PDF_EXTRACTOR_AWS_ASYNC_MAX_ATTEMPTS=20
+PDF_EXTRACTOR_AWS_ASYNC_DELETE_UPLOADED=true
+
+# Tesseract
+PDF_EXTRACTOR_TESSERACT_BINARY=tesseract
+PDF_EXTRACTOR_GHOSTSCRIPT_BINARY=gs
+PDF_EXTRACTOR_TESSERACT_LANGUAGE=eng
+PDF_EXTRACTOR_TESSERACT_DPI=300
 ```
 
 ## Result Object
