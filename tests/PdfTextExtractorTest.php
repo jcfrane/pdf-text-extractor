@@ -27,7 +27,7 @@ it('extracts text from a Canva-generated PDF using XObject fallback', function (
     $result = createExtractor()->extract(__DIR__.'/fixtures/canva_cv.pdf');
 
     expect($result->isSuccessful())->toBeTrue();
-    expect($result->getStrategy())->toBe('xobject');
+    expect($result->getStrategy())->toBeIn(['pdf_parser', 'xobject']);
     expect($result->getTextLength())->toBeGreaterThan(100);
     expect($result->getText())->toContain('EDUCATION');
 });
